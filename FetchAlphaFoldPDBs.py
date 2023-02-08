@@ -31,7 +31,7 @@ def getMatchingManyUniProtIDEntries(cursor, UniProtIDs, ACCESSION_ID_TABLE_NAME=
     sqlQuery = f'SELECT * FROM {ACCESSION_ID_TABLE_NAME} WHERE {UNI_PROT_ID_FEATURE_NAME} IN {INquery}'
     return cursor.execute(sqlQuery).fetchall()
 
-def getAFinfoForListOfUniProtIDs(cursor, UniProtIDs, debug=True, ACCESSION_ID_TABLE_NAME="accession_ids", UNI_PROT_ID_FEATURE_NAME="UniProtAccessionID"):
+def getAFinfoForListOfUniProtIDs(cursor, UniProtIDs, debug=False, ACCESSION_ID_TABLE_NAME="accession_ids", UNI_PROT_ID_FEATURE_NAME="UniProtAccessionID"):
     """
     Uses getMatchingUniProtIDEntries to return AF info matching Uniprot ID
     Handles what is returned (i.e. if match if found or not) and saves info to a file
@@ -71,7 +71,7 @@ def getAFinfoForListOfUniProtIDs(cursor, UniProtIDs, debug=True, ACCESSION_ID_TA
 
     return pd.DataFrame(AF_information)
 
-def getAndSaveAFinfoForListOfUniProtIDs(cursor, UniProtIDs, outputPath, debug=True, ACCESSION_ID_TABLE_NAME="accession_ids", UNI_PROT_ID_FEATURE_NAME="UniProtAccessionID"):
+def getAndSaveAFinfoForListOfUniProtIDs(cursor, UniProtIDs, outputPath, debug=False, ACCESSION_ID_TABLE_NAME="accession_ids", UNI_PROT_ID_FEATURE_NAME="UniProtAccessionID"):
     """Saves Dataframe result of getAFinfoForListOfUniProtIDs"""
     assert not os.path.exists(outputPath), "output path already exists!"
     AF_info_df = getAFinfoForListOfUniProtIDs(cursor, UniProtIDs, debug, ACCESSION_ID_TABLE_NAME, UNI_PROT_ID_FEATURE_NAME)
@@ -109,7 +109,8 @@ def fetchPDBsFromAlphaFoldInfoDataFrame(AlphaFoldInfoDataFrame, targetDirectory,
 
         # Catch where no ID match in AlphaFold
         if not isinstance(AF_ID, str):
-            print(f'{uniprotID} has no AF match')
+            if debug:
+                print(f'{uniprotID} has no AF match')
             final_paths_to_pdb.append(None)
             continue
 
@@ -147,12 +148,69 @@ def fetchPDBsFromAlphaFoldInfoDataFrame(AlphaFoldInfoDataFrame, targetDirectory,
     return AlphaFoldInfoDataFrame
 
 # ================================================================================================================================
-#   SEQUENCE CHECKING ALPHAFOLD PDBS
+#   RUN FUNCTION (End to end)
 # ================================================================================================================================
 
-# import Bio.PDB
-# from Bio.PDB import PDBParser
-# from Bio.SeqUtils import seq1 # convert 3 letter AA seq to 1 letter AA seq
+def fetchAlphaFoldPDBsFromIDList_EndToEnd(CONFIG, debug=False):
+    # UnPack Config
+    RUN_NAME = CONFIG['RUN_NAME']
+    OUTPUT_DIR = CONFIG['OUTPUT_DIR']
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    PATH_TO_UNIPROTID_CSV = CONFIG['PATH_TO_UNIPROTID_CSV']
+    ID_FEATURE_NAME = CONFIG['ID_FEATURE_NAME']
+    LOCAL_ALPHAFOLD_PDB_DIRECTORIES = CONFIG['LOCAL_ALPHAFOLD_PDB_DIRECTORIES']
+    
+    ACCESSION_DB_PATH = CONFIG['ACCESSION_DB_PATH']
+    ACCESSION_ID_TABLE_NAME = CONFIG['ACCESSION_ID_TABLE_NAME']
+    TABLE_UNIPROT_ID_FEATURE_NAME= CONFIG['TABLE_UNIPROT_ID_FEATURE_NAME']
+    ALPHAFOLD_ENDPOINT = CONFIG['ALPHAFOLD_ENDPOINT']
+    
+    # Get Unique IDs (shortcut)
+    idList = pd.read_csv(PATH_TO_UNIPROTID_CSV)
+    uniqueUniProtIDs = list(set(idList[ID_FEATURE_NAME]))
+    print(f'Found {len(idList[ID_FEATURE_NAME])} IDs, {len(uniqueUniProtIDs)} unique IDs')
+    
+    # Set Up DB Connection
+    conn = sqlite3.connect(ACCESSION_DB_PATH)
+    cur = conn.cursor()
+    
+    # Determine which have AlphaFold Entries
+    print("Checking which have AlphaFold entries")
+    AF_INFO_OUTPUT_FILEPATH = os.path.join(OUTPUT_DIR, f'./{RUN_NAME}_AF_info.csv')
+    AF_info = getAndSaveAFinfoForListOfUniProtIDs(
+        cur, 
+        uniqueUniProtIDs, 
+        AF_INFO_OUTPUT_FILEPATH,
+        ACCESSION_ID_TABLE_NAME=ACCESSION_ID_TABLE_NAME,
+        UNI_PROT_ID_FEATURE_NAME=TABLE_UNIPROT_ID_FEATURE_NAME,
+        debug=debug)
+    
+    # Small Debug Info
+    match_flags = AF_info['uniprot_ID_match'].values
+    numMatches = len([m for m in match_flags if isinstance(m, str)])
+    numNoMatches = len([m for m in match_flags if not isinstance(m, str)])
+    print(f'{len(match_flags)} IDs ran, {numMatches} matches, {numNoMatches} no match')
+    
+    # Prep Output Directory
+    COLLECTED_PDBS_DIR = os.path.join(OUTPUT_DIR, f'{RUN_NAME}_AF_PDBs')
+    os.makedirs(COLLECTED_PDBS_DIR, exist_ok=True)
+    FINAL_OUTPUT_PATH = os.path.join(OUTPUT_DIR, f'./{RUN_NAME}_AF_info_with_PDB_paths.csv')
+    
+    # Fetch PDBs for those with entries
+    print("Fetching PDBs for IDs with entries")
+    AF_info_with_PDB_paths = fetchPDBsFromAlphaFoldInfoDataFrame(
+        AF_info, 
+        COLLECTED_PDBS_DIR, 
+        LOCAL_ALPHAFOLD_PDB_DIRECTORIES, 
+        outputPath=FINAL_OUTPUT_PATH,
+        debug = debug,
+        AlphaFoldFilesHTTPS=ALPHAFOLD_ENDPOINT)
+    
+    # Small Debug Info
+    pdb_flags = AF_info_with_PDB_paths['PDB_path'].values
+    numPDBsFound = len([m for m in pdb_flags if isinstance(m, str)])
+    numNoPDBFound = len([m for m in pdb_flags if not isinstance(m, str)])
+    print(f'{len(pdb_flags)} IDs ran, {numPDBsFound} PDBs found, {numNoPDBFound} no PDB found')
 
 # ================================================================================================================================
 #   UTILITIES (Small functions either to tidy code for readability, or of limited/specific use)
