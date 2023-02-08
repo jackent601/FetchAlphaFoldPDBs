@@ -1,0 +1,1 @@
+The database search preceding the PDB pulldowns is a bit over the top given we have a list of uniprot IDs but it gives more confidence in making the search exhaustive for AlphaFold PDBs
