@@ -2,6 +2,11 @@ import sqlite3
 import pandas as pd
 import os
 import shutil
+import requests
+
+def url_ok(url):
+    r = requests.head(url)
+    return r.status_code == 200
 
 # Hard Coded For Local DataBase
 ACCESSION_DB_PATH = ".\\AlphaFold\\accession_id_db.db"
@@ -122,7 +127,7 @@ def fetchPDBsFromAlphaFoldInfoDataFrame(AlphaFoldInfoDataFrame, targetDirectory,
         if pdb_name in pdbs_present_in_target_dir:
             if debug:
                 print(f'{uniprotID} (AF: {pdb_name}) already present in {targetDirectory}, skipping')
-                final_paths_to_pdb.append(os.path.join(targetDirectory, pdb_name))
+            final_paths_to_pdb.append(os.path.join(targetDirectory, pdb_name))
             continue
         else:
             _TARGET_PATH = os.path.join(targetDirectory, pdb_name)
@@ -139,8 +144,19 @@ def fetchPDBsFromAlphaFoldInfoDataFrame(AlphaFoldInfoDataFrame, targetDirectory,
             # PDB not found in files, pull from AlphaFold to working space
             if debug:
                 print(f'{uniprotID} (AF: {pdb_name}) not found locally, pulling from AlphaFold')
-            os.system(f'curl {AlphaFoldFilesHTTPS}{pdb_name} -o {_TARGET_PATH}')
-            final_paths_to_pdb.append(_TARGET_PATH)
+            
+            # Check URL okay
+            pdb_url = f'{AlphaFoldFilesHTTPS}{pdb_name}'
+            if url_ok(pdb_url):
+                # Pull PDB
+                os.system(f'curl {AlphaFoldFilesHTTPS}{pdb_name} -o {_TARGET_PATH}')
+                final_paths_to_pdb.append(_TARGET_PATH)
+            else:
+                # URL not reachable
+                final_paths_to_pdb.append(None)
+                if debug:
+                    print(f'{uniprotID} (AF: {pdb_name}) URL ({pdb_url}) not reachable')
+
     AlphaFoldInfoDataFrame['PDB_path'] = final_paths_to_pdb
     print('- - - FINISHED - - - ')
     if outputPath is not None:
@@ -151,7 +167,10 @@ def fetchPDBsFromAlphaFoldInfoDataFrame(AlphaFoldInfoDataFrame, targetDirectory,
 #   RUN FUNCTION (End to end)
 # ================================================================================================================================
 
-def fetchAlphaFoldPDBsFromIDList_EndToEnd(CONFIG, debug=False):
+def Uniprot_Full(CONFIG, debug=False):
+    """
+    See readme - takes list of uniprot IDs, checks for AF entry in accession DB, pulls down PDB for entries present
+    """
     # UnPack Config
     RUN_NAME = CONFIG['RUN_NAME']
     OUTPUT_DIR = CONFIG['OUTPUT_DIR']
@@ -211,6 +230,52 @@ def fetchAlphaFoldPDBsFromIDList_EndToEnd(CONFIG, debug=False):
     numPDBsFound = len([m for m in pdb_flags if isinstance(m, str)])
     numNoPDBFound = len([m for m in pdb_flags if not isinstance(m, str)])
     print(f'{len(pdb_flags)} IDs ran, {numPDBsFound} PDBs found, {numNoPDBFound} no PDB found')
+
+def Uniprot_Quick(CONFIG, assumedVersion=4, debug=False):
+    """
+    See readme, takes list of uniprot IDs, guesses AlphaFold PDB name, attempts to pull down PDB
+    """
+    # TODO - functionalise unpacking
+    RUN_NAME = CONFIG['RUN_NAME']
+    PATH_TO_UNIPROTID_CSV = CONFIG['PATH_TO_UNIPROTID_CSV']
+    ID_FEATURE_NAME = CONFIG['ID_FEATURE_NAME']
+    OUTPUT_DIR = CONFIG['OUTPUT_DIR']
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    LOCAL_ALPHAFOLD_PDB_DIRECTORIES = CONFIG['LOCAL_ALPHAFOLD_PDB_DIRECTORIES']
+    ALPHAFOLD_ENDPOINT = CONFIG['ALPHAFOLD_ENDPOINT']
+
+    # Read list of IDs (TODO - Functionalise)
+    idList = pd.read_csv(PATH_TO_UNIPROTID_CSV)
+    uniqueUniProtIDs = list(set(idList[ID_FEATURE_NAME]))
+    print(f'Found {len(idList[ID_FEATURE_NAME])} IDs, {len(uniqueUniProtIDs)} unique IDs')
+
+    # Prep Output Directory
+    COLLECTED_PDBS_DIR = os.path.join(OUTPUT_DIR, f'{RUN_NAME}_AF_PDBs')
+    os.makedirs(COLLECTED_PDBS_DIR, exist_ok=True)
+    FINAL_OUTPUT_PATH = os.path.join(OUTPUT_DIR, f'./{RUN_NAME}_AF_info_with_PDB_paths.csv')
+
+    # Assume PDB entry is of form "AF-{uniprotID}-F1-model_v{assumedVersion}.pdb" to construct AF info dataframe
+    AF_DB_ID_guesses = [f'AF-{id}-F1' for id in uniqueUniProtIDs]
+    _AlphaFoldInfoDataFrame = pd.DataFrame({'uniprot_ID_source':uniqueUniProtIDs, 'AF_DB_ID':AF_DB_ID_guesses, 'latestVersion':assumedVersion})
+    AF_info_with_PDB_paths = fetchPDBsFromAlphaFoldInfoDataFrame(
+        _AlphaFoldInfoDataFrame, 
+        COLLECTED_PDBS_DIR, 
+        localPDBdirectories=LOCAL_ALPHAFOLD_PDB_DIRECTORIES, 
+        AlphaFoldFilesHTTPS = ALPHAFOLD_ENDPOINT, 
+        debug=debug, 
+        outputPath=FINAL_OUTPUT_PATH)
+
+    # Rename AF_ID_DB column to include that it was a guess
+    AF_info_with_PDB_paths = AF_info_with_PDB_paths.rename(columns={"AF_DB_ID":"AF_DB_ID_guess"})
+    AF_info_with_PDB_paths.to_csv(FINAL_OUTPUT_PATH, index=False)
+    
+    # Small Debug Info (TODO - Functionalise)
+    pdb_flags = AF_info_with_PDB_paths['PDB_path'].values
+    numPDBsFound = len([m for m in pdb_flags if isinstance(m, str)])
+    numNoPDBFound = len([m for m in pdb_flags if not isinstance(m, str)])
+    print(f'{len(pdb_flags)} IDs ran, {numPDBsFound} PDBs found, {numNoPDBFound} no PDB found')
+
+
 
 # ================================================================================================================================
 #   UTILITIES (Small functions either to tidy code for readability, or of limited/specific use)
