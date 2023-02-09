@@ -231,7 +231,7 @@ def Uniprot_Full(CONFIG, debug=False):
     numNoPDBFound = len([m for m in pdb_flags if not isinstance(m, str)])
     print(f'{len(pdb_flags)} IDs ran, {numPDBsFound} PDBs found, {numNoPDBFound} no PDB found')
 
-def Uniprot_Quick(CONFIG, assumedVersion=4, debug=False):
+def Uniprot_Guess(CONFIG, assumedVersion=4, debug=False):
     """
     See readme, takes list of uniprot IDs, guesses AlphaFold PDB name, attempts to pull down PDB
     """
@@ -271,6 +271,51 @@ def Uniprot_Quick(CONFIG, assumedVersion=4, debug=False):
     
     # Small Debug Info (TODO - Functionalise)
     pdb_flags = AF_info_with_PDB_paths['PDB_path'].values
+    numPDBsFound = len([m for m in pdb_flags if isinstance(m, str)])
+    numNoPDBFound = len([m for m in pdb_flags if not isinstance(m, str)])
+    print(f'{len(pdb_flags)} IDs ran, {numPDBsFound} PDBs found, {numNoPDBFound} no PDB found')
+
+def AlphaFoldPDBs(CONFIG, debug=False):
+    """
+    Simple function to pull down a list of pdb files from AlphaFold
+    """
+    # Unpack, note the renaming of PATH_TO_UNIPROTID_CSV, and ID_FEATURE_NAME
+    RUN_NAME = CONFIG['RUN_NAME']
+    PATH_TO_PDB_FILENAMES = CONFIG['PATH_TO_UNIPROTID_CSV']
+    PDB_FEATURE_NAME = CONFIG['ID_FEATURE_NAME']
+    OUTPUT_DIR = CONFIG['OUTPUT_DIR']
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    ALPHAFOLD_ENDPOINT = CONFIG['ALPHAFOLD_ENDPOINT']
+
+    # Prep Output Directory
+    COLLECTED_PDBS_DIR = os.path.join(OUTPUT_DIR, f'{RUN_NAME}_AF_PDBs')
+    os.makedirs(COLLECTED_PDBS_DIR, exist_ok=True)
+    FINAL_OUTPUT_PATH = os.path.join(OUTPUT_DIR, f'./{RUN_NAME}_AF_info_with_PDB_paths.csv')
+
+    # Get list of PDB file names
+    AF_DF = pd.read_csv(PATH_TO_PDB_FILENAMES)
+    pdb_names = AF_DF[PDB_FEATURE_NAME]
+
+    # Fetch from AlphaFold
+    final_paths_to_pdb = []
+    for pdb in pdb_names:
+        _TARGET_PATH = os.path.join(COLLECTED_PDBS_DIR, pdb)
+        # Check URL okay
+        pdb_url = f'{ALPHAFOLD_ENDPOINT}{pdb}'
+        if url_ok(pdb_url):
+            # Pull PDB
+            os.system(f'curl {pdb_url} -o {_TARGET_PATH}')
+            final_paths_to_pdb.append(_TARGET_PATH)
+        else:
+            # URL not reachable
+            final_paths_to_pdb.append(None)
+            if debug:
+                print(f'pdb: {pdb} URL ({pdb_url}) not reachable')
+
+    AF_DF['PDB_path'] = final_paths_to_pdb
+    AF_DF.to_csv(FINAL_OUTPUT_PATH)
+    # Small Debug Info (TODO - Functionalise)
+    pdb_flags = AF_DF['PDB_path'].values
     numPDBsFound = len([m for m in pdb_flags if isinstance(m, str)])
     numNoPDBFound = len([m for m in pdb_flags if not isinstance(m, str)])
     print(f'{len(pdb_flags)} IDs ran, {numPDBsFound} PDBs found, {numNoPDBFound} no PDB found')
