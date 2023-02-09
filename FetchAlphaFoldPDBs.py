@@ -335,8 +335,8 @@ def utility_fetchSingleAlphaFoldPDB(uniprotID, AlphaFoldID, AlphaFoldVersion, ta
             "uniprot_ID_source": uniprotID,
             "uniprot_ID_match": None,
             "AF_DB_ID": AlphaFoldID,
-            "firstResidueIndex": None,
-            "lastResidueIndex": None,
+            "AFfirstResidueIndex": None,
+            "AFlastResidueIndex": None,
             "latestVersion": AlphaFoldVersion
         })
     fetchPDBsFromAlphaFoldInfoDataFrame(AlphaFoldInfoDataFrame, targetDirectory, localPDBdirectories, AlphaFoldFilesHTTPS = 'https://alphafold.ebi.ac.uk/files/')
@@ -349,9 +349,9 @@ def utility_AppendNullEntryToAFinfoList(AF_information, uniProtID):
         "uniprot_ID_source": uniProtID,
         "uniprot_ID_match": None,
         "AF_DB_ID": None,
-        "firstResidueIndex": None,
-        "lastResidueIndex": None,
-        "latestVersion": None
+        "AFfirstResidueIndex": None,
+        "AFlastResidueIndex": None,
+        "AFlatestVersion": None
         }
     )
     # Get write string
@@ -367,9 +367,9 @@ def utility_AppendEntryToAFinfoList(AF_information, uniProtID, entry):
         "uniprot_ID_source": uniProtID,
         "uniprot_ID_match": uID,
         "AF_DB_ID": AF_DB_ID,
-        "firstResidueIndex": firstResidueIndx,
-        "lastResidueIndex": lastResidueIndx,
-        "latestVersion": latestVersion
+        "AFfirstResidueIndex": firstResidueIndx,
+        "AFlastResidueIndex": lastResidueIndx,
+        "AFlatestVersion": latestVersion
         }
     )
     # Get Write String
